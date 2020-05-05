@@ -1168,7 +1168,8 @@ namespace JeuDeLaVie {
 				try {
 					//Ratio de cellules vivantes
 					var ratio = CommunicationUtilities.GetFloatInput("Quel pourcentage de remplissage voulez-vous?\n" +
-					                                                 "Choix (0.1-0.9) : ");
+					                                                 "(mettez un . à la place des , si vous etes sous Linux)\n" +
+					                                                 "Choix (0,1-0,9) : ");
 
 					//Création du générateur
 					gen = new WeightedRandomGenerator((float) ratio);
