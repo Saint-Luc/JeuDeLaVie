@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.Remoting.Messaging;
 using System.Text;
 
 namespace JeuDeLaVie {
@@ -246,6 +248,144 @@ namespace JeuDeLaVie {
 		}
 	}
 
+	interface IVirusCellState {
+		IVirusCellState TryInfect();
+
+		void Draw();
+
+		IVirusCellState Update();
+	}
+
+	class VulnerableState : IVirusCellState {
+		public IVirusCellState TryInfect() {
+			return new InfectedState();
+		}
+
+		public IVirusCellState Update() {
+			return null;
+		}
+
+		public void Draw() {
+			Console.BackgroundColor = ConsoleColor.White;
+			Console.Write(' ');
+		}
+	}
+
+	class InfectedState : IVirusCellState {
+		private int m_stade;
+		private int m_cunt;
+		private bool m_remission;
+		private static Random m_random = new Random();
+
+
+		public InfectedState() {
+			m_stade = 0;
+			m_cunt = 0;
+			m_remission = false;
+		}
+
+		public IVirusCellState TryInfect() {
+			return null;
+		}
+
+		public IVirusCellState Update() {
+			//recul de la maladie
+			m_cunt++;
+			if (m_cunt == 5) {
+				m_stade--;
+				m_cunt = 0;
+				if (m_stade < 2) {
+					m_remission = true;
+				}
+
+				if (m_stade == -1) {
+					return new ImmuneState();
+				}
+			}
+			
+			//avancée de la maladie
+			if (!m_remission) {
+				if (m_random.Next(0, 100) <
+				    (m_stade == 0 ? 60 :
+					    m_stade == 1 ? 20 :
+					    m_stade == 2 ? 10 : 2)) {
+					m_stade++;
+					m_cunt = 0;
+					if (m_stade == 4) return new DeadState();
+				}
+			}
+
+			return null;
+		}
+
+		public void Draw() {
+			Console.BackgroundColor = m_stade == 0 ? ConsoleColor.Yellow :
+				m_stade == 1 ? ConsoleColor.DarkYellow :
+				m_stade == 2 ? ConsoleColor.Red : ConsoleColor.DarkRed;
+			Console.Write(m_stade);
+		}
+	}
+
+	class ImmuneState : IVirusCellState {
+		public IVirusCellState TryInfect() {
+			return null;
+		}
+
+		public IVirusCellState Update() {
+			return null;
+		}
+
+		public void Draw() {
+			Console.BackgroundColor = ConsoleColor.Green;
+			Console.Write(' ');
+		}
+	}
+
+	class DeadState : IVirusCellState {
+		public IVirusCellState TryInfect() {
+			return null;
+		}
+
+		public IVirusCellState Update() {
+			return null;
+		}
+
+		public void Draw() {
+			Console.BackgroundColor = ConsoleColor.Black;
+			Console.Write(' ');
+		}
+	}
+
+	class VirusCell {
+		private IVirusCellState m_currentState;
+
+		public VirusCell() {
+			m_currentState = new VulnerableState();
+		}
+
+		public bool TryInfect() {
+			var potentialNewState = m_currentState.TryInfect();
+
+			if (potentialNewState != null) {
+				m_currentState = potentialNewState;
+				return true;
+			}
+
+			return false;
+		}
+
+		public void Update() {
+			var potentialNewState = m_currentState.Update();
+
+			if (potentialNewState != null) {
+				m_currentState = potentialNewState;
+			}
+		}
+		public void Draw() {
+			m_currentState.Draw();
+		}
+	}
+
 	/**
 	 * Cette structure représente une matrice de type quelconque dont chaque côté est lié au côté lui faisant face. Sa
 	 * taille est donc nécessairement d'au moins 2 dans chaque dimension. Elle n'est pas conçue comme wrapper safe d'une
@@ -318,7 +458,7 @@ namespace JeuDeLaVie {
 	 * @brief Implémentation partielle générique de ICellModifier.
 	 */
 	abstract class CellModifier<T> : ICellModifier {
-		protected readonly LoopingMatrix<T> m_matrix;
+		protected LoopingMatrix<T> m_matrix;
 
 		/**
 		 * Ce constructeur stocke la matrice fournie pour son utilisation future dans la méthode Access.
@@ -684,7 +824,7 @@ namespace JeuDeLaVie {
 					//Création de la cellule
 					m_cells.InternalMatrix[i, j] =
 						new Tuple<CellPop, short[]>(new CellPop(state, populationId), new short[populationNumber]);
-					//Création du delta si la cellule crée est vivante
+					//Création du delta si la cellule créée est vivante
 					if (state) {
 						deltas.Add(new CirclingModifier(new MultiPopDelta(m_cells, 1, populationId), i, j));
 					}
@@ -835,6 +975,84 @@ namespace JeuDeLaVie {
 		}
 	}
 
+	class VirusGrid : IGrid {
+		private readonly LoopingMatrix<VirusCell> m_cells;
+		private List<Tuple<int, int>> m_freshlyInfectedCells;
+		
+		public VirusGrid(int initialInfectedCells, int width, int height) {
+			//Création de la matrice
+			m_cells = new LoopingMatrix<VirusCell>(width, height);
+			
+			//Création aléatoire des cellules
+			for (int i = 0; i < m_cells.InternalMatrix.GetLength(0); i++) {
+				for (int j = 0; j < m_cells.InternalMatrix.GetLength(1); j++) {
+
+					//Création de la cellule
+					m_cells.InternalMatrix[i, j] = new VirusCell();
+				}
+			}
+			
+			var random = new Random();
+			m_freshlyInfectedCells = new List<Tuple<int, int>>();
+			for (int i = 0; i < initialInfectedCells; i++) {
+				var a = random.Next(0, height);
+				var b = random.Next(0, width);
+				if (m_freshlyInfectedCells.Find(t => t.Item1 == a && t.Item2 == b) == null) {
+					m_freshlyInfectedCells.Add(new Tuple<int, int>(a, b));
+				}
+				else i--;
+			}
+
+			foreach (var position in m_freshlyInfectedCells) {
+				m_cells.InternalMatrix[position.Item1, position.Item2].TryInfect();
+			}
+		}
+
+		public void Update() {
+			var random = new WeightedRandomGenerator(2.5f / 8);
+			var newFreshlyInfectedCell = new List<Tuple<int, int>>();
+
+			for (int i = 0; i < m_cells.InternalMatrix.GetLength(0); i++) {
+				for (int j = 0; j < m_cells.InternalMatrix.GetLength(1); j++) {
+					m_cells.InternalMatrix[i, j].Update();
+				}
+			}
+			
+			foreach (var position in m_freshlyInfectedCells) {
+				for (int i = position.Item1-1; i <= position.Item1+1; i++) {
+					for (int j = position.Item2-1; j <= position.Item2+1; j++) {
+						if (i != position.Item1 || j != position.Item2) {
+							if (random.GenerateWeightedBool()) {
+								if(m_cells.LoopingGet(i, j).TryInfect())
+									newFreshlyInfectedCell.Add(new Tuple<int, int>(i, j));
+							}
+						}
+					}
+				}
+			}
+
+			m_freshlyInfectedCells = newFreshlyInfectedCell;
+		}
+
+		public GridMemento Serialize() {
+			throw new NotImplementedException();
+		}
+
+		public void Draw() {
+			Console.Clear();
+			var bg = Console.BackgroundColor;
+			
+			for (int i = 0; i < m_cells.InternalMatrix.GetLength(0); i++) {
+				for (int j = 0; j < m_cells.InternalMatrix.GetLength(1); j++) {
+					m_cells.InternalMatrix[i, j].Draw();
+				}
+				Console.WriteLine();
+			}
+
+			Console.BackgroundColor = bg;
+		}
+	}
+
 	/**
 	 * Cette interface représente un objet capable de créer des IGrid.
 	 * @brief Factory de IGrid
@@ -878,6 +1096,29 @@ namespace JeuDeLaVie {
 		public IGrid GetGrid() {
 			if (m_populationNumber == 0) return new SinglePopGrid(m_generator, m_dimensions.Item1, m_dimensions.Item2);
 			else return new MultiPopGrid(m_generator, m_dimensions.Item1, m_dimensions.Item2, m_populationNumber);
+		}
+	}
+
+	class VirusGridFactory : IGridFactory {
+		private readonly int m_kakadebitealacrem;
+		private readonly Tuple<int, int> m_omeletdufromagedekouille;
+
+		public VirusGridFactory(int kakadebitealacrem, Tuple<int, int> omeletdufromagedekouille) {
+			if (kakadebitealacrem > omeletdufromagedekouille.Item1 * omeletdufromagedekouille.Item2) {
+				throw new ArgumentException();
+			}
+
+			if (omeletdufromagedekouille.Item1 > 10000 || omeletdufromagedekouille.Item1 < 1 ||
+			    omeletdufromagedekouille.Item2 > 10000 || omeletdufromagedekouille.Item2 < 1) {
+				throw new ArgumentOutOfRangeException();
+			}
+			
+			m_kakadebitealacrem = kakadebitealacrem;
+			m_omeletdufromagedekouille = omeletdufromagedekouille;
+		}
+
+		public IGrid GetGrid() {
+			return new VirusGrid(m_kakadebitealacrem, m_omeletdufromagedekouille.Item1, m_omeletdufromagedekouille.Item2);
 		}
 	}
 
@@ -1225,25 +1466,68 @@ namespace JeuDeLaVie {
 		 * Méthode Main. Affiche un message d'accueil, crée les objets nécessaires à l'exécution, puis lance le jeu.
 		 */
 		public static void Main() {
-			//Choix du mode d'utilisation
-			Console.Write("Bienvenue!\n\nSouhaitez-vous utiliser le programme en mode manuel (1) ou en mode " +
-			              "automatique (2)?\n\nLe mode manuel permet de passer les générations une par une, de faire " +
-			              "des sauts en avant ou de faire aller le programme à vitesse maximale.\nLe mode " +
-			              "automatique recherche seul des groupes de cellules de période trois ou quatre, puis donne " +
-			              "le contrôle sur la grille à l'utilisateur, comme en mode 1.\n");
+			//Choix du jeu
+			Console.WriteLine("Bienvenue!\n\nSouhaitez-vous jouer au JeuDeLaVie classique (1) ou au JeuDeLaVie version " +
+			              "Covid (2)?)");
+			var choix = 0;
+			while (choix != 1 && choix != 2) {
+				choix = CommunicationUtilities.GetIntInput("Choix : ");
+			}
 
-			//Mode d'exécution choisi par l'utilisateur
-			var runMode = CreateRunMode();
-			Console.Clear();
+			if (choix == 1) {
+				//Choix du mode d'utilisation
+				Console.Write("\n\nSouhaitez-vous utiliser le programme en mode manuel (1) ou en mode " +
+				              "automatique (2)?\n\nLe mode manuel permet de passer les générations une par une, de faire " +
+				              "des sauts en avant ou de faire aller le programme à vitesse maximale.\nLe mode " +
+				              "automatique recherche seul des groupes de cellules de période trois ou quatre, puis donne " +
+				              "le contrôle sur la grille à l'utilisateur, comme en mode 1.\n");
 
-			//Générateur de bool aléatoire
-			var gen = CreateRandomGenerator();
-			Console.WriteLine();
-			//Factory de grilles
-			var gridFactory = CreateGridFactory(gen);
+				//Mode d'exécution choisi par l'utilisateur
+				var runMode = CreateRunMode();
+				Console.Clear();
 
-			//Exécution du jeu de la vie dans le mode choisi
-			runMode.Run(gridFactory);
+				//Générateur de bool aléatoire
+				var gen = CreateRandomGenerator();
+				Console.WriteLine();
+				//Factory de grilles
+				var gridFactory = CreateGridFactory(gen);
+
+				//Exécution du jeu de la vie dans le mode choisi
+				runMode.Run(gridFactory);
+			}
+			else {
+				var runMode = new DefaultRunMode();
+				Console.Clear();
+				
+				VirusGridFactory virusGridFactory = null;
+
+				while (virusGridFactory == null) {
+					try {
+						//Taille de la grille
+						var width = CommunicationUtilities.GetIntInput("Quelle largeur de grille voulez-vous?\nChoix " +
+						                                               "(3-10000) : ");
+						var height = CommunicationUtilities.GetIntInput("Quelle hauteur de grille voulez-vous?\nChoix " +
+						                                                "(3-10000) : ");
+						//Taille de la population
+						var initialInfectedCells =
+							CommunicationUtilities.GetIntInput(
+								"Quel nombre d'infectés voulez-vous?\nChoix : ");
+
+						//Création de la grille
+						virusGridFactory = new VirusGridFactory(initialInfectedCells , new Tuple<int, int>(width, height));
+					}
+					catch (ArgumentOutOfRangeException) {
+						Console.WriteLine("Ces tailles ne sont pas valides. Veuillez donner des valeurs plus " +
+						                  "grandes que 1, et inférieures à 10000");
+					}
+					catch (ArgumentException) {
+						Console.WriteLine("Le nombre d'infectés initial doit être au minimum 1 et au maximum le nombre de cellules. De plus, le nombre d'infectés initiaux " +
+						                  "est limité à la quantité symbolique de 10000... parce que c'est MON jeu.");
+					}
+				}
+
+				runMode.Run(virusGridFactory);
+			}
 		}
 	}
 }
